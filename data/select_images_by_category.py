@@ -1,12 +1,22 @@
-import readline
 import xml.etree.ElementTree as ET
-
+import shutil
 from tqdm.auto import tqdm
 from pathlib import Path
 
 # yaml = yaml.safe_load('./VOC.yaml')
-names = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog',
-        'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor'] 
+# names = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog',
+#         'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor'] 
+# index     0       1     2        3          4
+names = ['person','car','bus','motorbike','bicycle'] # 选用种类 person, car, bus, bicycle
+dir = Path('/home/zhang/FL_Projects/exp/datasets/VOC_select')
+year = '2007'
+set = 'trainval'
+path = dir / f'VOCdevkit'
+imgs_path = dir / 'images' / f'{set}{year}'
+lbs_path = dir / 'labels' / f'{set}{year}'
+imgs_path.mkdir(exist_ok=True, parents=True)
+lbs_path.mkdir(exist_ok=True, parents=True)
+
 
 def convert_label(path, lb_path, year, image_id):
     def convert_box(size, box):
@@ -38,20 +48,20 @@ def convert_label(path, lb_path, year, image_id):
 #         url + 'VOCtest_06-Nov-2007.zip',  # 438MB, 4953 images
 #         url + 'VOCtrainval_11-May-2012.zip']  # 1.95GB, 17126 images
 # download(urls, dir=dir / 'images', delete=False, curl=True, threads=3)
-
 # Convert
-dir = Path('/home/zhang/FL_Projects/exp/datasets/VOC')
-path = dir / f'VOCdevkit'
-for year, image_set in ('2012', 'train'), ('2012', 'val'):
-    imgs_path = dir / 'images' / f'{image_set}{year}'
-    lbs_path = dir / 'labels' / f'{image_set}{year}'
-    imgs_path.mkdir(exist_ok=True, parents=True)
-    lbs_path.mkdir(exist_ok=True, parents=True)
 
-    with open(path / f'VOC{year}/ImageSets/Main/{image_set}.txt') as f:
-        image_ids = f.read().strip().split()
-    for id in tqdm(image_ids, desc=f'{image_set}{year}'):
-        f = path / f'VOC{year}/JPEGImages/{id}.jpg'  # old img path
-        lb_path = (lbs_path / f.name).with_suffix('.txt')  # new label path
-        f.rename(imgs_path / f.name)  # move image
-        convert_label(path, lb_path, year, id)  # convert labels to YOLO format
+
+for category in names:
+    with open(path / f'VOC{year}/ImageSets/Main/{category}_{set}.txt') as f:
+        for item in tqdm(f):
+            id, has = item.strip().split()
+            if has == '1':
+                old_path = path / f'VOC{year}/JPEGImages/{id}.jpg'  # old img path
+                lb_path = (lbs_path / old_path.name).with_suffix('.txt')  # new label path
+                shutil.copyfile(old_path, imgs_path/ old_path.name)
+                # old_path.rename(imgs_path / old_path.name)  # move image
+                convert_label(path, lb_path, year, id)  # convert labels to YOLO format
+
+
+
+            

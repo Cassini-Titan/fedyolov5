@@ -8,6 +8,7 @@ from flwr.server.strategy import FedAvg
 from flwr.common.parameter import weights_to_parameters
 from flwr.common import Scalar, Weights
 from pathlib import Path
+from utils.loggers import Loggers
 
 
 
@@ -19,91 +20,86 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 import val
 from utils.loss import ComputeLoss
-from utils.general import check_dataset, check_file, check_yaml, colorstr, increment_path
+from utils.general import LOGGER, check_dataset, check_file, check_yaml, colorstr, methods
 from utils.callbacks import Callbacks
 from utils.datasets import create_dataloader
 from config import server_config
 from models.yolo import Model
 from model_utils import load_model, freeze_model
-
+# loggers = Loggers(save_dir, CONFIG.weights, CONFIG, hyp, LOGGER)
 
 # DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # torch.cuda.set_per_process_memory_fraction(0.2)
 
 
-config = server_config()
-DEVICE = torch.device(f'cuda:{config.device}')
-callbacks = Callbacks()
+CONFIG = server_config()
+DEVICE = torch.device(f'cuda:{CONFIG.device}')
+# MODEL = load_model(CONFIG.weights, CONFIG, CONFIG.hyp).to(DEVICE)
+CALLBACKS = Callbacks()
 
-def eval(model: Model) -> Tuple[float, Dict[str, Scalar]]:
-
+def eval(model) -> Tuple[float, Dict[str, Scalar]]:
 
     model.to(DEVICE)
-    batch_size = config.batch_size
-    imgsz = config.imgsz
-    hyp = config.hyp
-    workers = config.workers
-    data_dict = check_dataset(config.data)
-    # 验证集路径
+    # 验证集
+    data_dict = check_dataset(CONFIG.data)
     val_path = data_dict['val']
-    # 加载超参数
-    if isinstance(hyp, str):
-        with open(hyp, errors='ignore') as f:
-            hyp = yaml.safe_load(f)  # load hyps dict
     
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
+
     val_loader = create_dataloader(path=val_path,
-                                imgsz=imgsz,
-                                batch_size=batch_size,
+                                imgsz=CONFIG.imgsz,
+                                batch_size=CONFIG.batch_size,
                                 stride=gs,
-                                hyp=hyp,
-                                cache=config.cache,
-                                rect=True,
+                                hyp=model.hyp,
+                                cache=CONFIG.cache,
+                                rect=False,
                                 rank=-1,
-                                workers=workers,
+                                workers=CONFIG.workers,
                                 pad=0.5,
                                 prefix=colorstr('server eval: '))[0]
 
     # load eval settings
-    model.hyp=hyp
     results, _, _ = val.run(
         client_id=0,
-        data=check_dataset(config.data),
-        batch_size=batch_size,
-        imgsz=config.imgsz,
+        data=check_dataset(CONFIG.data),
+        batch_size=CONFIG.batch_size,
+        imgsz=CONFIG.imgsz,
         model=model,
         dataloader=val_loader,
         device=DEVICE,
-        save_dir=config.save_dir,
+        save_dir=CONFIG.save_dir,
         plots=False,
-        callbacks=callbacks,
-        compute_loss=ComputeLoss(model))
+        callbacks=CALLBACKS,
+        compute_loss=ComputeLoss(model),
+        training=False)
 
     precision, recall, mAP50, mAP, loss = results[0],results[1],results[2], results[3], results[4]
+    log_vals = [loss,precision,recall,mAP50,mAP]
+    CALLBACKS.run('on_val_end', log_vals)
     # (mp, mr, map50, map, *(loss.cpu() / len(dataloader)).tolist()), maps, t
 
     return loss, {'precision': precision, 'recall': recall, 'mAP50':mAP50, 'mAP':mAP}
 
 
 def evaluate_fn(weights: Weights) -> Tuple[float, Dict[str, Scalar]]:
-    model = load_model(config.weights, config, config.hyp)
+    model = load_model(CONFIG.weights, CONFIG, CONFIG.hyp)
     model.set_weights(weights)
     loss, metrics = eval(model)
     return loss, metrics
 
 
-def server_check(config):
+def server_check(CONFIG):
     # Checks
-    # print_args(vars(config))
-    # # check_git_status()
-
-    config.data, config.hyp, config.weights, config.project = \
-        check_file(config.data), check_yaml(config.hyp), str(config.weights), str(config.project)  # checks
-    config.save_dir = str(Path(config.project) / config.name/ f'server')
-
-    # config.save_dir = str(increment_path(Path(config.project) / config.name
-    #                                      / f'server' / 'round', exist_ok=config.exist_ok, mkdir=True))
-    
+    CONFIG.data, CONFIG.hyp, CONFIG.weights, CONFIG.project = \
+        check_file(CONFIG.data), check_yaml(CONFIG.hyp), str(CONFIG.weights), str(CONFIG.project)  # checks
+    CONFIG.save_dir = Path(CONFIG.project) / CONFIG.name / 'server'
+    # CONFIG.save_dir = str(increment_path(Path(CONFIG.project) / CONFIG.name
+    #
+    #                                       / f'server' / 'round', exist_ok=CONFIG.exist_ok, mkdir=True))
+    # register logger
+    loggers = Loggers(CONFIG.save_dir, CONFIG.weights, CONFIG, CONFIG.hyp, LOGGER)
+    for k in methods(loggers):
+        CALLBACKS.register_action(k, callback=getattr(loggers, k))
 
 if __name__ == "__main__":
 
@@ -113,10 +109,10 @@ if __name__ == "__main__":
     # Server-side:input->Parameters(List[byte])->List[numpy]->aggregate
 
     # check data and model
-    server_check(config)
+    server_check(CONFIG)
 
     # load and init global model 
-    global_model = load_model(config.weights, config, config.hyp)
+    global_model = load_model(CONFIG.weights, CONFIG, CONFIG.hyp)
     initial_parameters = weights_to_parameters(global_model.get_weights())
     del global_model
     
@@ -132,6 +128,6 @@ if __name__ == "__main__":
     # Start Flower server
     fl.server.start_server(
         server_address="[::]:1234",
-        config={"num_rounds": config.round},
+        config={"num_rounds": CONFIG.round},
         strategy=strategy,
     )

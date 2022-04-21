@@ -53,9 +53,9 @@ from model_utils import load_model, freeze_model
 
 
 
-def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictionary
+def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/hyp.yaml or hyp dictionary
     save_dir, epochs, batch_size, weights, data, cfg, noval, nosave, workers, freeze ,client_id= \
-        Path(opt.save_dir), opt.epochs, opt.batch_size, opt.weights, opt.data, opt.cfg, \
+        opt.save_dir, opt.epochs, opt.batch_size, opt.weights, opt.data, opt.cfg, \
         opt.noval, opt.nosave, opt.workers, opt.freeze, opt.id
     callbacks.run('on_pretrain_routine_start')
 
@@ -72,14 +72,14 @@ def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml 
     #             ', '.join(f'{k}={v}' for k, v in hyp.items()))
 
     # Save run settings
-    with open(save_dir / 'hyp.yaml', 'w') as f:
-        yaml.safe_dump(hyp, f, sort_keys=False)
-    with open(save_dir / 'opt.yaml', 'w') as f:
-        yaml.safe_dump(vars(opt), f, sort_keys=False)
+    # with open(save_dir / 'hyp.yaml', 'w') as f:
+    #     yaml.safe_dump(hyp, f, sort_keys=False)
+    # with open(save_dir / 'opt.yaml', 'w') as f:
+    #     yaml.safe_dump(vars(opt), f, sort_keys=False)
 
     # Loggers
     data_dict = None
-    loggers = Loggers(save_dir, weights, opt, hyp, LOGGER)  # loggers instance
+    # loggers = Loggers(save_dir, weights, opt, hyp, logger)  # loggers instance
 
     # Register actions
     for k in methods(loggers):
@@ -198,13 +198,13 @@ def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml 
     train_loader, dataset = create_dataloader(train_path,
                                               imgsz,
                                               batch_size,
-                                              gs,
+                                              stride=gs,
                                               hyp=hyp,
                                               augment=True,
                                               cache=None if opt.cache == 'val' else opt.cache,
                                               workers=workers,
-                                              prefix=colorstr('train: '),
-                                              shuffle=True)
+                                              rect=False,
+                                              prefix=colorstr('train: '))
     mlc = int(np.concatenate(dataset.labels, 0)[:, 0].max())  # max label class
     nb = len(train_loader)  # number of batches
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'
@@ -216,15 +216,13 @@ def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml 
                                    stride=gs,
                                    hyp=hyp,
                                    cache=None if noval else opt.cache,
-                                   rect=True,
-                                   rank=-1,
+                                   rect=False,
                                    workers=workers * 2,
                                    pad=0.5,
                                    prefix=colorstr('val: '))[0]
 
-    # labels = np.concatenate(dataset.labels, 0)
-
-    # plot_labels(labels, names, save_dir)
+    labels = np.concatenate(dataset.labels, 0)
+    plot_labels(labels, names, save_dir)
     # check_anchors(dataset, model=model_info, thr=hyp['anchor_t'], imgsz=imgsz)
     model.half().float()  # pre-reduce anchor precision
 
@@ -257,7 +255,7 @@ def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml 
     stopper = EarlyStopping(patience=opt.patience)
     compute_loss = ComputeLoss(model)  # init loss class
     callbacks.run('on_train_start')
-    LOGGER.info(f'Starting training for {epochs} epochs...')
+    # LOGGER.info(f'Starting training for {epochs} epochs...')
     # epoch ------------------------------------------------------------------
     for epoch in range(start_epoch, epochs):
         callbacks.run('on_train_epoch_start')
@@ -350,7 +348,7 @@ def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml 
                                        model=model,
                                        dataloader=val_loader,
                                        save_dir=save_dir,
-                                       plots=False,
+                                       plots=True,
                                        callbacks=callbacks,
                                        compute_loss=compute_loss)
 
@@ -359,9 +357,12 @@ def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml 
             fi = fitness(np.array(results).reshape(1, -1))
             if fi > best_fitness:
                 best_fitness = fi
-            log_vals = list(mloss) + list(results) + lr
-            callbacks.run('on_fit_epoch_end', log_vals,
-                          epoch, best_fitness, fi)
+            # log_vals = list(mloss) + list(results) + lr
+            # callbacks.run('on_fit_epoch_end', log_vals,
+            #               epoch, best_fitness, fi)
+            precision, recall, mAP50, mAP, loss = results[0],results[1],results[2], results[3], results[4]
+            log_vals = [loss,precision,recall,mAP50,mAP]
+            callbacks.run('on_val_end', log_vals)            
 
             # Save model
             if (not nosave) or (final_epoch):  # if save
@@ -428,6 +429,6 @@ def train(model:Model, hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml 
     #     LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}")
 
     torch.cuda.empty_cache()
-    return results
+    return results, dataset.n
 
 

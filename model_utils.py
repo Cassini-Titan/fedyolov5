@@ -27,7 +27,8 @@ def load_model(pt:str, opt, hyp:str)-> Model:
         with open(hyp, errors='ignore') as f:
             hyp = yaml.safe_load(f)  # load hyps dict
     data_dict = check_dataset(opt.data)
-    nc = int(data_dict['nc']) 
+    nc = int(data_dict['nc'])
+    names = data_dict['names'] 
     anchors=hyp.get('anchors')
     # exclude = ['anchor'] if (hyp.get('anchors')) else []  # exclude keys
     # csd = ckpt['model'].float().state_dict()
@@ -36,10 +37,12 @@ def load_model(pt:str, opt, hyp:str)-> Model:
     # nc = 20 for voc
     ckpt = torch.load(pt, map_location='cpu')  # load checkpoint to CPU to avoid CUDA memory leak
     model = Model(ckpt['model'].yaml, ch=3, nc=nc, anchors=anchors)
-    exclude = ['anchor'] if hyp.get('anchors') else []
+    exclude = ['anchor'] if anchors else []
     model_info = ckpt['model'].float().state_dict()  # checkpoint state_dict as FP32
     weights = intersect_dicts(model_info, model.state_dict(), exclude=exclude)
     model.load_state_dict(weights,strict=False)
+    model.names = names
+    model.hyp = hyp
     del weights, ckpt
     return model
 

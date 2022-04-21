@@ -108,7 +108,7 @@ def run(
         conf_thres=0.001,  # confidence threshold
         iou_thres=0.6,  # NMS IoU threshold
         task='val',  # train, val, test, speed or study
-        device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
+        device=None,  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         workers=8,  # max dataloader workers (per RANK in DDP mode)
         single_cls=False,  # treat as single-class dataset
         augment=False,  # augmented inference
@@ -128,17 +128,18 @@ def run(
         plots=True,
         callbacks=Callbacks(),
         compute_loss=None,
+        training=True
 ):
     # Initialize/load model and set device
-    training = model is not None
-    if training:  # called by train.py
-        device, pt, jit, engine = next(model.parameters()).device, True, False, False  # get model device, PyTorch model
-        # print(f"val on device!!!{device.index}")
-        half &= device.type != 'cpu'  # half precision only supported on CUDA
-        model.half() if half else model.float()
-    else:
-        LOGGER.error("Model needed for val.py")
-        return None
+    # training = model is not None
+    # if training:  # called by train.py
+    #     device, pt, jit, engine = next(model.parameters()).device, True, False, False  # get model device, PyTorch model
+    #     # print(f"val on device!!!{device.index}")
+    #     half &= device.type != 'cpu'  # half precision only supported on CUDA
+    #     model.half() if half else model.float()
+    # else:
+    #     LOGGER.error("Model needed for val.py")
+    #     return None
     # else:  # called directly
     #     # device = select_device(device, batch_size=batch_size)
 
@@ -161,6 +162,9 @@ def run(
     #             LOGGER.info(f'Forcing --batch-size 1 square inference (1,3,{imgsz},{imgsz}) for non-PyTorch models')
 
     #     # Data
+    if device is None:
+        device = torch.device('cuda:0')
+    model.half() if half else model.float()
     data = check_dataset(data)  # check
 
     # Configure
@@ -173,21 +177,20 @@ def run(
 
     # Dataloader
     # if not training:
-    #     if pt and not single_cls:  # check --weights are trained on --data
-    #         ncm = model.model.yaml['nc']
-    #         assert ncm == nc, f'{weights[0]} ({ncm} classes) trained on different --data than what you passed ({nc} ' \
-    #                           f'classes). Pass correct combination of --weights and --data that are trained together.'
-    #     model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
-    #     pad = 0.0 if task in ('speed', 'benchmark') else 0.5
-    #     rect = False if task == 'benchmark' else pt  # square inference for benchmarks
+    #     # if pt and not single_cls:  # check --weights are trained on --data
+    #     #     ncm = model.model.yaml['nc']
+    #     #     assert ncm == nc, f'{weights[0]} ({ncm} classes) trained on different --data than what you passed ({nc} ' \
+    #     #                       f'classes). Pass correct combination of --weights and --data that are trained together.'
+    #     # model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
     #     task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
     #     dataloader = create_dataloader(data[task],
     #                                    imgsz,
     #                                    batch_size,
-    #                                    stride,
+    #                                    model.stride.max(),
     #                                    single_cls,
-    #                                    pad=pad,
-    #                                    rect=rect,
+    #                                    pad=0.5,
+    #                                    cache=True,
+    #                                    rect=False,
     #                                    workers=workers,
     #                                    prefix=colorstr(f'{task}: '))[0]
 
@@ -195,7 +198,7 @@ def run(
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
     class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
-    s = ('%10s' + '%20s' + '%11s' * 6) % ('Client', 'Class', 'Images', 'Labels', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
+    s = ('%10s' + '%20s' + '%11s' * 6) % ('Device', 'Class', 'Images', 'Labels', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
     dt, p, r, f1, mp, mr, map50, map = [0.0, 0.0, 0.0], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
@@ -214,7 +217,7 @@ def run(
         dt[0] += t2 - t1
 
         # Inference
-        out, train_out = model(im) if training else model(im, augment=augment, val=True)  # inference, loss outputs
+        out, train_out = model(im) 
         dt[1] += time_sync() - t2
 
         # Loss
@@ -299,7 +302,7 @@ def run(
     # Plots
     if plots:
         confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
-        callbacks.run('on_val_end')
+        # callbacks.run('on_val_end')
 
     # Return results
     model.float()  # for training

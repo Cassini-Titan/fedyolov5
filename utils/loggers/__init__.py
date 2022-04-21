@@ -58,6 +58,14 @@ class Loggers():
             'x/lr1',
             'x/lr2']  # params
         self.best_keys = ['best/epoch', 'best/precision', 'best/recall', 'best/mAP_0.5', 'best/mAP_0.5:0.95']
+        
+        self.val_keys = [
+            'loss',
+            'metrics/precision',
+            'metrics/recall',
+            'metrics/mAP_0.5',
+            'metrics/mAP_0.5:0.95']  # metrics]
+        
         for k in LOGGERS:
             setattr(self, k, None)  # init empty logger dictionary
         self.csv = True  # always log to csv
@@ -119,8 +127,16 @@ class Loggers():
         if self.wandb:
             self.wandb.val_one_image(pred, predn, path, names, im)
 
-    def on_val_end(self):
+    def on_val_end(self, vals):
         # Callback runs on val end
+        x = {k: v for k, v in zip(self.val_keys, vals)}  # dict
+        if self.csv:
+            file = self.save_dir / 'val_results.csv'
+            n = len(x)  # number of cols
+            s = '' if file.exists() else (('%20s,' * n % tuple(self.val_keys)).rstrip(',') + '\n')  # add header
+            with open(file, 'a') as f:
+                print('string!!!'+('%20.5g,' * n % tuple(vals)).rstrip(',') + '\n')
+                f.write(s + ('%20.5g,' * n % tuple(vals)).rstrip(',') + '\n')
         if self.wandb:
             files = sorted(self.save_dir.glob('val*.jpg'))
             self.wandb.log({"Validation": [wandb.Image(str(f), caption=f.name) for f in files]})
@@ -152,6 +168,7 @@ class Loggers():
         if self.wandb:
             if ((epoch + 1) % self.opt.save_period == 0 and not final_epoch) and self.opt.save_period != -1:
                 self.wandb.log_model(last.parent, self.opt, epoch, fi, best_model=best_fitness == fi)
+    
 
     def on_train_end(self, last, best, plots, epoch, results):
         # Callback runs on training end
