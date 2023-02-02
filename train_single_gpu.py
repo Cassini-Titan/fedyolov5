@@ -307,7 +307,7 @@ def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/
                     imgs = nn.functional.interpolate(
                         imgs, size=ns, mode='bilinear', align_corners=False)
 
-            # Forward
+            # Forward 
             with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
                 loss, loss_items = compute_loss(
