@@ -27,6 +27,7 @@ from torch.nn import Module
 from tqdm import tqdm
 from tqdm.auto import tqdm
 
+
 FILE = Path(__file__).resolve() #获取当前文件路径
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
