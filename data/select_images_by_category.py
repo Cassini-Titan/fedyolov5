@@ -7,10 +7,10 @@ from pathlib import Path
 # names = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog',
 #         'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor'] 
 # index     0       1     2        3          4
-names = ['person','car','bus','motorbike','bicycle'] # 选用种类 person, car, bus, bicycle
+names = ['car','bus','motorbike','bicycle'] # 选用种类 person, car, bus, bicycle
 dir = Path('/home/zhang/FL_Projects/exp/datasets/VOC_select')
 year = '2007'
-set = 'trainval'
+set = 'test'
 path = dir / f'VOCdevkit'
 imgs_path = dir / 'images' / f'{set}{year}'
 lbs_path = dir / 'labels' / f'{set}{year}'
@@ -37,7 +37,7 @@ def convert_label(path, lb_path, year, image_id):
         if cls in names and not int(obj.find('difficult').text) == 1:
             xmlbox = obj.find('bndbox')
             bb = convert_box((w, h), [float(xmlbox.find(x).text) for x in ('xmin', 'xmax', 'ymin', 'ymax')])
-            cls_id = names.index(cls)  # class id
+            cls_id = names.index(cls) + 1 # class id
             out_file.write(" ".join([str(a) for a in (cls_id, *bb)]) + '\n')
 
 

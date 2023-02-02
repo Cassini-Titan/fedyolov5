@@ -1,17 +1,17 @@
 #!/bin/bash
-ClientNum=2
+ClientNum=4
 
 echo "Starting server"
 python server.py \
---name transfer_backbone \
---round 20 \
+--name transfer_nofreeze \
+--round 100 \
 --weights yolov5s.pt \
 --data ./data/myvoc.yaml \
 --hyp ./data/hyps/hyp.VOC.yaml \
---batch-size 8 \
+--batch-size 32 \
 --img 512 \
 --device 0 \
---workers 6 \
+--workers 4 \
 --half &
 
 sleep 3  # Sleep for 3s to give the server enough time to start
@@ -20,16 +20,15 @@ for i in $(seq 1 $ClientNum)
 do
     echo "Starting client $i"
     python client_single_gpu.py \
-    --name transfer_backbone \
+    --name transfer_nofreeze \
     --id $i \
-    --freeze 10 \
     --weights yolov5s.pt \
     --data ./data/myvoc.yaml \
     --hyp ./data/hyps/hyp.VOC.yaml \
     --img 512 \
-    --batch-size 8 \
-    --workers 4 \
-    --epochs 5  \
+    --batch-size 16 \
+    --workers 2 \
+    --epochs 4  \
     --nosave \
     --noval \
     --cache \

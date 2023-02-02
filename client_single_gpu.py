@@ -29,7 +29,7 @@ import val
 from models.yolo import Model
 from train_single_gpu import train
 from utils.callbacks import Callbacks
-from utils.general import check_file, check_yaml, LOGGER
+from utils.general import check_file, check_yaml, LOGGER, methods
 from utils.loggers import Loggers
 from model_utils import load_model, freeze_model
 from config import client_config
@@ -50,7 +50,9 @@ CONFIG.save_dir = Path(CONFIG.project) / CONFIG.name / f'client{CONFIG.id}'
 # client device and local modol
 MODEL = load_model(CONFIG.weights, CONFIG, CONFIG.hyp).to(DEVICE)
 CALLBACKS = Callbacks()
-
+loggers = Loggers(CONFIG.save_dir, CONFIG.weights, CONFIG, CONFIG.hyp, LOGGER)
+for k in methods(loggers):
+    CALLBACKS.register_action(k, callback=getattr(loggers, k))
 
 class MobileClient(fl.client.NumPyClient):
     def __init__(self,id) -> None:
@@ -82,11 +84,8 @@ class MobileClient(fl.client.NumPyClient):
 
 
 def local_train():
-    save_dir = CONFIG.save_dir
-    hyp = CONFIG.hyp
-    loggers = Loggers(save_dir, CONFIG.weights, CONFIG, hyp, LOGGER)
-    
-    return train(model=MODEL, hyp=hyp, opt=CONFIG, device=DEVICE, callbacks=CALLBACKS, loggers=loggers)
+
+    return train(model=MODEL, hyp=CONFIG.hyp, opt=CONFIG, device=DEVICE, callbacks=CALLBACKS, loggers=loggers)
 
 
 
@@ -94,4 +93,5 @@ def local_train():
 
 
 if __name__ == '__main__':
-    fl.client.start_numpy_client(server_address="[::]:1234", client=MobileClient(CONFIG.id))
+    msg_max_length = 1024 * 1024 * 1024
+    fl.client.start_numpy_client(server_address="127.0.0.1:8080", client=MobileClient(CONFIG.id), grpc_max_message_length=msg_max_length)

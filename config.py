@@ -26,10 +26,11 @@ def client_config(known=False):
                         'data/hyps/hyp.scratch-low.yaml', help='hyperparameters path')
     parser.add_argument('--imgsz', '--img', '--img-size', type=int,
                         default=640, help='train, val image size (pixels)')
+    parser.add_argument('--rect', action='store_true', help='rectangular training')
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--freeze', nargs='+', type=int,
                         default=[0], help='Freeze layers: backbone=10, first3=0 1 2')
-
+    parser.add_argument('--image-weights', action='store_true', help='use weighted image selection for training')
     parser.add_argument('--nosave', action='store_true',
                         help='only save final checkpoint')
     parser.add_argument('--cache', type=str, nargs='?', const='ram',
@@ -45,7 +46,7 @@ def client_config(known=False):
                         help='existing project/name ok, do not increment')
     parser.add_argument('--label-smoothing', type=float,
                         default=0.0, help='Label smoothing epsilon')
-    parser.add_argument('--patience', type=int, default=100,
+    parser.add_argument('--patience', type=int, default=200,
                         help='EarlyStopping patience (epochs without improvement)')
     parser.add_argument('--multi-scale', action='store_true',
                         help='vary img-size +/- 50%%')
@@ -66,6 +67,7 @@ def server_config(known=False):
                         'data/hyps/hyp.scratch-low.yaml', help='hyperparameters path')
     parser.add_argument('--imgsz', '--img', '--img-size', type=int,
                         default=640, help='train, val image size (pixels)')
+    parser.add_argument('--rect', action='store_true', help='rectangular training')
     parser.add_argument('--task', type=str, default='val', help='task')  
     parser.add_argument('--device', type=int, default=3,
                         help='cuda device, i.e. 0 or 0,1,2,3 or cpu')

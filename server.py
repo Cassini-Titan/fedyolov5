@@ -1,5 +1,6 @@
 import sys
 import os
+
 import torch
 import yaml
 import flwr as fl
@@ -8,6 +9,7 @@ from flwr.server.strategy import FedAvg
 from flwr.common.parameter import weights_to_parameters
 from flwr.common import Scalar, Weights
 from pathlib import Path
+from copy import deepcopy
 from utils.loggers import Loggers
 
 
@@ -26,6 +28,7 @@ from utils.datasets import create_dataloader
 from config import server_config
 from models.yolo import Model
 from model_utils import load_model, freeze_model
+from utils.torch_utils import de_parallel
 # loggers = Loggers(save_dir, CONFIG.weights, CONFIG, hyp, LOGGER)
 
 # DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -36,10 +39,22 @@ CONFIG = server_config()
 DEVICE = torch.device(f'cuda:{CONFIG.device}')
 # MODEL = load_model(CONFIG.weights, CONFIG, CONFIG.hyp).to(DEVICE)
 CALLBACKS = Callbacks()
+# register logger
+CONFIG.data, CONFIG.hyp, CONFIG.weights, CONFIG.project = \
+    check_file(CONFIG.data), check_yaml(CONFIG.hyp), str(CONFIG.weights), str(CONFIG.project)  
+CONFIG.save_dir = Path(CONFIG.project) / CONFIG.name / 'server'
+loggers = Loggers(CONFIG.save_dir, CONFIG.weights, CONFIG, CONFIG.hyp, LOGGER)
+for k in methods(loggers):
+    CALLBACKS.register_action(k, callback=getattr(loggers, k))
 
 def eval(model) -> Tuple[float, Dict[str, Scalar]]:
 
     model.to(DEVICE)
+    ckpt = {
+    'model': deepcopy(de_parallel(model)).half()}
+
+    # Save last, best and delete
+    torch.save(ckpt, CONFIG.save_dir / 'global.pt')
     # 验证集
     data_dict = check_dataset(CONFIG.data)
     val_path = data_dict['val']
@@ -52,7 +67,7 @@ def eval(model) -> Tuple[float, Dict[str, Scalar]]:
                                 stride=gs,
                                 hyp=model.hyp,
                                 cache=CONFIG.cache,
-                                rect=False,
+                                rect=True,
                                 rank=-1,
                                 workers=CONFIG.workers,
                                 pad=0.5,
@@ -88,18 +103,11 @@ def evaluate_fn(weights: Weights) -> Tuple[float, Dict[str, Scalar]]:
     return loss, metrics
 
 
-def server_check(CONFIG):
-    # Checks
-    CONFIG.data, CONFIG.hyp, CONFIG.weights, CONFIG.project = \
-        check_file(CONFIG.data), check_yaml(CONFIG.hyp), str(CONFIG.weights), str(CONFIG.project)  # checks
-    CONFIG.save_dir = Path(CONFIG.project) / CONFIG.name / 'server'
+
     # CONFIG.save_dir = str(increment_path(Path(CONFIG.project) / CONFIG.name
     #
     #                                       / f'server' / 'round', exist_ok=CONFIG.exist_ok, mkdir=True))
-    # register logger
-    loggers = Loggers(CONFIG.save_dir, CONFIG.weights, CONFIG, CONFIG.hyp, LOGGER)
-    for k in methods(loggers):
-        CALLBACKS.register_action(k, callback=getattr(loggers, k))
+
 
 if __name__ == "__main__":
 
@@ -108,8 +116,6 @@ if __name__ == "__main__":
     # Client-side:train-> Dict[str,tensor] -> List[numpy] -> Parameters(List[byte])->output
     # Server-side:input->Parameters(List[byte])->List[numpy]->aggregate
 
-    # check data and model
-    server_check(CONFIG)
 
     # load and init global model 
     global_model = load_model(CONFIG.weights, CONFIG, CONFIG.hyp)
@@ -124,10 +130,11 @@ if __name__ == "__main__":
         min_eval_clients=1,
         eval_fn=evaluate_fn
     )
-
+    msg_max_length = 1024 * 1024 * 1024
     # Start Flower server
     fl.server.start_server(
-        server_address="[::]:1234",
+        server_address="127.0.0.1:8080",
         config={"num_rounds": CONFIG.round},
         strategy=strategy,
+        grpc_max_message_length=msg_max_length
     )

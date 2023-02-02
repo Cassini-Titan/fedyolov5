@@ -135,7 +135,6 @@ class Loggers():
             n = len(x)  # number of cols
             s = '' if file.exists() else (('%20s,' * n % tuple(self.val_keys)).rstrip(',') + '\n')  # add header
             with open(file, 'a') as f:
-                print('string!!!'+('%20.5g,' * n % tuple(vals)).rstrip(',') + '\n')
                 f.write(s + ('%20.5g,' * n % tuple(vals)).rstrip(',') + '\n')
         if self.wandb:
             files = sorted(self.save_dir.glob('val*.jpg'))

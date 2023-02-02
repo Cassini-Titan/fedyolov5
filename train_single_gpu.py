@@ -27,7 +27,7 @@ from torch.nn import Module
 from tqdm import tqdm
 from tqdm.auto import tqdm
 
-FILE = Path(__file__).resolve()
+FILE = Path(__file__).resolve() #获取当前文件路径
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
@@ -40,7 +40,7 @@ from utils.callbacks import Callbacks
 from utils.datasets import create_dataloader
 from utils.general import (LOGGER, check_dataset, check_file, check_img_size,
                            check_suffix, check_yaml, colorstr, get_latest_run, increment_path, init_seeds,
-                           intersect_dicts, labels_to_class_weights, methods, one_cycle,
+                           intersect_dicts, labels_to_class_weights, labels_to_image_weights, methods, one_cycle,
                            print_args, print_mutation, strip_optimizer)
 from utils.loggers import Loggers
 from utils.loss import ComputeLoss
@@ -81,16 +81,12 @@ def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/
     data_dict = None
     # loggers = Loggers(save_dir, weights, opt, hyp, logger)  # loggers instance
 
-    # Register actions
-    for k in methods(loggers):
-        callbacks.register_action(k, callback=getattr(loggers, k))
+
 
     # Config
     cuda = device.type != 'cpu'
     data_dict = data_dict or check_dataset(data)  # check if None
     train_path= Path(data_dict['train'][0]) /  f"client{client_id}"
-    # print(f"data_dict!!!:{data_dict['train']}\n")
-    print(f'client:{client_id},,load dataset!!!:{train_path}\n')
     val_path = data_dict['val'][0]
     names = data_dict['names']
     nc = int(data_dict['nc'])  # number of classes
@@ -198,13 +194,15 @@ def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/
     train_loader, dataset = create_dataloader(train_path,
                                               imgsz,
                                               batch_size,
+                                              image_weights=opt.image_weights,
                                               stride=gs,
                                               hyp=hyp,
                                               augment=True,
                                               cache=None if opt.cache == 'val' else opt.cache,
                                               workers=workers,
-                                              rect=False,
-                                              prefix=colorstr('train: '))
+                                              rect=opt.rect,
+                                              prefix=colorstr('train: '),
+                                              shuffle=True)
     mlc = int(np.concatenate(dataset.labels, 0)[:, 0].max())  # max label class
     nb = len(train_loader)  # number of batches
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'
@@ -216,7 +214,7 @@ def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/
                                    stride=gs,
                                    hyp=hyp,
                                    cache=None if noval else opt.cache,
-                                   rect=False,
+                                   rect=opt.rect,
                                    workers=workers * 2,
                                    pad=0.5,
                                    prefix=colorstr('val: '))[0]
@@ -260,6 +258,12 @@ def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/
     for epoch in range(start_epoch, epochs):
         callbacks.run('on_train_epoch_start')
         model.train()
+
+        # Update image weights (optional, single-GPU only)
+        if opt.image_weights:
+            cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights
+            iw = labels_to_image_weights(dataset.labels, nc=nc, class_weights=cw)  # image weights
+            dataset.indices = random.choices(range(dataset.n), weights=iw, k=dataset.n)  # rand weighted idx
 
         mloss = torch.zeros(3, device=device)  # mean losses
         pbar = enumerate(train_loader)
@@ -400,8 +404,8 @@ def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/
 
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training -----------------------------------------------------------------------------------------------------
-    LOGGER.info(
-        f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) :.3f} s.')
+    # LOGGER.info(
+    #     f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) :.3f} s.')
     # for f in last, best:
     #     if f.exists():
     #         strip_optimizer(f)  # strip optimizers
@@ -428,7 +432,7 @@ def train(model:Model, hyp, opt, device, callbacks, loggers):  # hyp is path/to/
     #     callbacks.run('on_train_end', last, best, True, epoch, results)
     #     LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}")
 
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     return results, dataset.n
 
 
